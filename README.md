@@ -42,7 +42,7 @@ Untuk debug di VS Code, gunakan konfigurasi `Kernel` pada `.vscode/launch.json`.
 
 - [x] Chapter 0: Toolchain, C kernel + linker, Makefile automation, GDT
 - [x] Chapter 1: Framebuffer driver, Interrupt (PIC remap, IDT, ISR), Keyboard driver
-- [ ] Chapter 2: File System EXT2
+- [x] Chapter 2: File System EXT2
 - [ ] Chapter 3: Paging, User Mode, Shell
 - [ ] Chapter 4: Process, Scheduler, Multitasking
 - [ ] Bonus / Side Features
