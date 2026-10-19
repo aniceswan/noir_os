@@ -7,6 +7,7 @@ CC            = gcc
 SOURCE_FOLDER = src
 OUTPUT_FOLDER = bin
 ISO_NAME      = OS2025
+DISK_NAME     = storage
 
 # Flags
 WARNING_CFLAG = -Wall -Wextra -Werror
@@ -23,10 +24,17 @@ ASM_OBJECTS   = $(patsubst $(SOURCE_FOLDER)/%.s,$(OUTPUT_FOLDER)/%.o,$(ASM_SOURC
 C_OBJECTS     = $(patsubst $(SOURCE_FOLDER)/%.c,$(OUTPUT_FOLDER)/%.o,$(C_SOURCES))
 OBJECTS       = $(ASM_OBJECTS) $(C_OBJECTS)
 
-.PHONY: all build run clean kernel iso
+.PHONY: all build run clean kernel iso disk
 
-run: all
-	@qemu-system-i386 -s -S -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso
+disk:
+	@qemu-img create -f raw $(OUTPUT_FOLDER)/$(DISK_NAME).bin 4M
+
+$(OUTPUT_FOLDER)/$(DISK_NAME).bin:
+	@qemu-img create -f raw $(OUTPUT_FOLDER)/$(DISK_NAME).bin 4M
+
+run: all $(OUTPUT_FOLDER)/$(DISK_NAME).bin
+	@qemu-system-i386 -s -S -drive file=$(OUTPUT_FOLDER)/$(DISK_NAME).bin,format=raw,if=ide,index=0,media=disk -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso
+
 all: build
 build: iso
 clean:
