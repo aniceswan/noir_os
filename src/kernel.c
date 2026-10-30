@@ -6,111 +6,85 @@
 #include "header/kernel-entrypoint.h"
 #include "header/text/framebuffer.h"
 #include "header/driver/keyboard.h"
-#include "header/driver/disk.h"
 #include "header/filesystem/ext2.h"
+#include "header/memory/paging.h"
 
-static void kernel_puts(uint8_t row, uint8_t col, const char *str, uint8_t fg, uint8_t bg) {
-    uint8_t c_col = col;
-    for (int i = 0; str[i] != '\0'; i++) {
-        if (str[i] == '\n') {
-            row++;
-            c_col = col;
-        } else {
-            framebuffer_write(row, c_col, str[i], fg, bg);
-            c_col++;
-            if (c_col >= FRAMEBUFFER_WIDTH) {
-                c_col = col;
-                row++;
-            }
-        }
-    }
+#define SHELL_PARENT_INODE 1u          // root inode in EXT2 IF2130 Edition
+#define SHELL_MAX_SIZE     0x100000u   // 1 MiB
+
+static void print(const char *s) {
+    uint32_t count = 0;
+    while (s[count] != '\0') count++;
+    framebuffer_puts(s, count, 0x0F);
 }
 
 void kernel_setup(void) {
-    // Chapter 0: Load Global Descriptor Table
+    // Chapter 0: Global Descriptor Table
     load_gdt(&_gdt_gdtr);
 
-    // Chapter 1: Interrupt setup
+    // Chapter 1: Interrupts & Hardware Drivers
     pic_remap();
     initialize_idt();
     activate_keyboard_interrupt();
 
-    // Chapter 1: Clear framebuffer
+    // Chapter 1: Clear screen (higher-half MMIO 0xC00B8000)
     framebuffer_clear();
     framebuffer_set_cursor(0, 0);
 
-    kernel_puts(1, 2, "=== mbOSok Operating System (IF2130) ===", 0xA, 0x0);
-    kernel_puts(2, 2, "Chapter 0 & 1: GDT, IDT, PIC, Framebuffer, Keyboard OK", 0x7, 0x0);
-
-    // Chapter 2.2: Disk Driver test (PDF page 71)
-    struct BlockBuffer b;
-    for (int i = 0; i < 512; i++) b.buf[i] = i % 16;
-    write_blocks(&b, 17, 1);
-    kernel_puts(4, 2, "[Disk Driver] Write 512 bytes to block 17: OK", 0xB, 0x0);
-
-    // Chapter 2.5 & 2.6: File System EXT2 Initializer & CRUD test
+    // Chapter 2: EXT2 File System Initializer
     initialize_filesystem_ext2();
-    kernel_puts(5, 2, "[EXT2 FS] Filesystem initialized: OK", 0xB, 0x0);
 
-    // Test writing a file to root directory
-    char file_content[] = "Hello from mbOSok EXT2 File System!";
-    struct EXT2DriverRequest write_req = {
-        .buf = file_content,
-        .name = "hello.txt",
-        .name_len = 9,
-        .parent_inode = 1,
-        .buffer_size = sizeof(file_content) - 1,
-        .is_directory = false,
-    };
-    int8_t w_ret = write(&write_req);
+    // Chapter 3: Task State Segment (TSS) for Ring 0 <-> Ring 3 transitions
+    gdt_install_tss();
+    set_tss_register();
 
-    // Test reading back the file
-    char read_buf[64];
-    for (int i = 0; i < 64; i++) read_buf[i] = 0;
-    struct EXT2DriverRequest read_req = {
-        .buf = read_buf,
-        .name = "hello.txt",
-        .name_len = 9,
-        .parent_inode = 1,
-        .buffer_size = sizeof(read_buf),
-        .is_directory = false,
-    };
-    int8_t r_ret = read(read_req);
+    print("mbOSok M3: loading shell into user mode (Ring 3)...\n");
 
-    if ((w_ret == 0 || w_ret == 1) && r_ret == 0) {
-        kernel_puts(6, 2, "[EXT2 FS] Write & Read 'hello.txt': SUCCESS", 0x2, 0x0);
-        kernel_puts(7, 4, read_buf, 0xE, 0x0);
-    } else {
-        kernel_puts(6, 2, "[EXT2 FS] Write & Read: FAILED", 0xC, 0x0);
+    // 1. Allocate 4 page frames for user stack (0x3FC000 - 0x3FFFFF)
+    for (uint32_t i = 0; i < 4; i++) {
+        paging_allocate_user_page_frame(
+            &_paging_kernel_page_directory,
+            (void *) (0x3FC000 + i * PAGE_FRAME_SIZE)
+        );
     }
 
-    kernel_puts(9, 2, "Type anything on your keyboard below:", 0xF, 0x0);
-    framebuffer_set_cursor(11, 2);
-
-    // Interactive keyboard typing
-    int row = 11, col = 2;
-    keyboard_state_activate();
-    while (true) {
-        char c = 0;
-        get_keyboard_buffer(&c);
-        if (c) {
-            if (c == '\n') {
-                row++;
-                col = 2;
-            } else if (c == '\b') {
-                if (col > 2) {
-                    col--;
-                    framebuffer_write(row, col, ' ', 0x7, 0x0);
-                }
-            } else {
-                framebuffer_write(row, col, c, 0xF, 0);
-                col++;
-                if (col >= FRAMEBUFFER_WIDTH - 2) {
-                    col = 2;
-                    row++;
-                }
-            }
-            framebuffer_set_cursor(row, col);
-        }
+    // 2. Query shell binary size from EXT2 disk
+    uint32_t file_size = 0;
+    if (get_file_size("shell", 5, SHELL_PARENT_INODE, &file_size) != 0 || file_size == 0) {
+        print("Error: Failed to find shell binary on disk! (run 'make prepare')\n");
+        while (true) __asm__ volatile("hlt");
     }
+
+    // 3. Allocate page frames for shell executable image starting at virtual 0x0
+    uint32_t code_frame_count = (file_size + PAGE_FRAME_SIZE - 1) / PAGE_FRAME_SIZE;
+    for (uint32_t i = 0; i < code_frame_count; i++) {
+        paging_allocate_user_page_frame(
+            &_paging_kernel_page_directory,
+            (void *) (i * PAGE_FRAME_SIZE)
+        );
+    }
+
+    // 4. Load shell binary directly into virtual address 0x0
+    struct EXT2DriverRequest request = {
+        .buf          = (void *) 0,
+        .name         = "shell",
+        .name_len     = 5,
+        .parent_inode = SHELL_PARENT_INODE,
+        .buffer_size  = file_size,
+        .is_directory = false,
+    };
+    if (read(request) != 0) {
+        print("Error: Failed to read shell binary into memory!\n");
+        while (true) __asm__ volatile("hlt");
+    }
+
+    // 5. Setup TSS esp0 kernel stack pointer for inter-privilege syscalls/interrupts
+    set_tss_kernel_current_stack();
+
+    print("Transitioning to User Mode...\n");
+
+    // 6. Execute shell in user mode (Ring 3) via iret technique
+    kernel_execute_user_program((void *) 0x0);
+
+    while (true) __asm__ volatile("hlt");
 }
