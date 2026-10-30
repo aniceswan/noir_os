@@ -1,12 +1,20 @@
-#include "header/driver/disk.h"
+#include "header/filesystem/disk.h"
 #include "header/cpu/portio.h"
 
+/**
+ * Bounded busy wait so a missing/unresponsive drive does not hang the kernel.
+ * QEMU's ATA PIO completes within a handful of port reads.
+ */
+#define ATA_WAIT_TIMEOUT 1000000u
+
 static void ATA_busy_wait(void) {
-    while (in(0x1F7) & ATA_STATUS_BSY);
+    uint32_t timeout = ATA_WAIT_TIMEOUT;
+    while ((in(0x1F7) & ATA_STATUS_BSY) && timeout--);
 }
 
 static void ATA_DRQ_wait(void) {
-    while (!(in(0x1F7) & ATA_STATUS_RDY));
+    uint32_t timeout = ATA_WAIT_TIMEOUT;
+    while (!(in(0x1F7) & ATA_STATUS_RDY) && timeout--);
 }
 
 void read_blocks(void *ptr, uint32_t logical_block_address, uint8_t block_count) {
@@ -41,6 +49,6 @@ void write_blocks(const void *ptr, uint32_t logical_block_address, uint8_t block
         ATA_busy_wait();
         ATA_DRQ_wait();
         for (uint32_t j = 0; j < HALF_BLOCK_SIZE; j++)
-            out16(0x1F0, ((uint16_t*) ptr)[HALF_BLOCK_SIZE*i + j]);
+            out16(0x1F0, ((const uint16_t*) ptr)[HALF_BLOCK_SIZE*i + j]);
     }
 }
