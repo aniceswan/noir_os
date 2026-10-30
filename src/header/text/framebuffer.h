@@ -5,7 +5,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#define FRAMEBUFFER_MEMORY_OFFSET ((uint8_t*) 0xB8000)
+/* Higher-half virtual address of the VGA text framebuffer (physical 0xB8000) */
+#define FRAMEBUFFER_MEMORY_OFFSET ((uint8_t*) 0xC00B8000)
 #define CURSOR_PORT_CMD    0x03D4
 #define CURSOR_PORT_DATA   0x03D5
 
@@ -34,7 +35,7 @@ void framebuffer_write(uint8_t row, uint8_t col, char c, uint8_t fg, uint8_t bg)
 
 /**
  * Set cursor to specified location. Row and column starts from 0
- * 
+ *
  * @param r row
  * @param c column
 */
@@ -47,5 +48,41 @@ void framebuffer_set_cursor(uint8_t r, uint8_t c);
  *
  */
 void framebuffer_clear(void);
+
+/**
+ * Write a single character at the tracked text cursor position.
+ * Handles '\n', '\r' and '\b' (backspace) and scrolls the screen when
+ * the last row is exceeded. Updates the hardware cursor.
+ *
+ * @param c     Character
+ * @param color Text color (lower 4-bit foreground, upper 4-bit background)
+ */
+void framebuffer_putchar(char c, uint8_t color);
+
+/**
+ * Write count characters from a buffer at the tracked text cursor position.
+ *
+ * @param buffer Character buffer
+ * @param count  Number of characters to write
+ * @param color  Text color (lower 4-bit foreground, upper 4-bit background)
+ */
+void framebuffer_puts(const char *buffer, uint32_t count, uint8_t color);
+
+/**
+ * Move the tracked text cursor to (row, col) and update the hardware cursor.
+ * Used by user programs (e.g. the clock) to print at a fixed location.
+ *
+ * @param row Destination row (clamped to the screen)
+ * @param col Destination column (clamped to the screen)
+ */
+void framebuffer_move_cursor(uint8_t row, uint8_t col);
+
+/**
+ * Get the tracked text cursor position.
+ *
+ * @param row Output row
+ * @param col Output column
+ */
+void framebuffer_get_cursor(uint8_t *row, uint8_t *col);
 
 #endif
