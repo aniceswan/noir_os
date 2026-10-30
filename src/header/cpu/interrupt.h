@@ -74,8 +74,8 @@ struct CPURegister {
         uint32_t esi;
     } __attribute__((packed)) index;
     struct {
-        uint32_t esp;
         uint32_t ebp;
+        uint32_t esp;
     } __attribute__((packed)) stack;
     struct {
         uint32_t ebx;
@@ -125,7 +125,34 @@ struct InterruptFrame {
     struct InterruptStack int_stack;
 } __attribute__((packed));
 
+extern struct TSSEntry _interrupt_tss_entry;
 
+/**
+ * TSSEntry, Task State Segment. Used when jumping back to ring 0 / kernel.
+ * Only esp0/ss0 are used: the CPU loads them on inter-privilege interrupts
+ * and system calls.
+ */
+struct TSSEntry {
+    uint32_t prev_tss; // Previous TSS
+    uint32_t esp0;     // Stack pointer to load when changing to kernel mode
+    uint32_t ss0;      // Stack segment to load when changing to kernel mode
+    // Unused variables
+    uint32_t unused_register[23];
+} __attribute__((packed));
+
+// Set kernel stack in TSS (esp0), called before entering user mode
+void set_tss_kernel_current_stack(void);
+
+/**
+ * Handle a system call raised with INT 0x30 from user mode.
+ * eax = service number, ebx/ecx/edx = parameters.
+ *
+ * The frame is passed by pointer to the values saved on the kernel stack,
+ * so the handler may write the return value into frame->cpu.general.eax.
+ *
+ * @param frame Pointer to the interrupt frame captured by the ISR stub
+ */
+void syscall(struct InterruptFrame *frame);
 
 // Activate PIC mask for keyboard only
 void activate_keyboard_interrupt(void);
@@ -150,8 +177,8 @@ void pic_remap(void);
  * parameter. Can be checked with ((int*) info) + 4 for user $esp, 5 for user $ss
  * 
  * Again, this function is not for normal function call, all parameter will be automatically set when interrupt is called.
- * @param frame Information about CPU during interrupt is raised
+ * @param frame Pointer to the saved InterruptFrame on the kernel stack
  */
-void main_interrupt_handler(struct InterruptFrame frame);
+void main_interrupt_handler(struct InterruptFrame *frame);
 
 #endif
