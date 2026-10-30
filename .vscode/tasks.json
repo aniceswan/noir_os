@@ -17,6 +17,28 @@
             }
         },
         {
+            "type": "cppbuild",
+            "label": "Build Inserter",
+            "command": "make",
+            "args": [
+                "inserter"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "type": "cppbuild",
+            "label": "Build Shell",
+            "command": "make",
+            "args": [
+                "user-shell"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
             "type": "shell",
             "label": "Launch QEMU",
             "command": "echo Starting QEMU&qemu-system-i386 -s -S -drive file=storage.bin,format=raw,if=ide,index=0,media=disk -cdrom OS2025.iso",
