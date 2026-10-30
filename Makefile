@@ -12,7 +12,7 @@ ISO_NAME      = OS2025
 DISK_NAME     = storage
 
 # User programs (built outside the kernel image)
-USER_PROGRAMS      = shell clock hello
+USER_PROGRAMS      = shell clock hello echo
 USER_PROGRAM_BINS  = $(addprefix $(OUTPUT_FOLDER)/,$(USER_PROGRAMS))
 USER_PROGRAM_ELFS  = $(addprefix $(OUTPUT_FOLDER)/,$(addsuffix _elf,$(USER_PROGRAMS)))
 
@@ -83,8 +83,10 @@ insert-shell: inserter $(OUTPUT_FOLDER)/shell $(OUTPUT_FOLDER)/$(DISK_NAME).bin
 	@cd $(OUTPUT_FOLDER); ./inserter -f shell 1 $(DISK_NAME).bin
 
 insert-programs: inserter user-programs $(OUTPUT_FOLDER)/$(DISK_NAME).bin
+	@echo Inserting external programs into /bin...
 	@cd $(OUTPUT_FOLDER); ./inserter -f -p clock /bin/clock $(DISK_NAME).bin
 	@cd $(OUTPUT_FOLDER); ./inserter -f -p hello /bin/hello $(DISK_NAME).bin
+	@cd $(OUTPUT_FOLDER); ./inserter -f -p echo /bin/echo $(DISK_NAME).bin
 	@cd $(OUTPUT_FOLDER); ./inserter -f ../$(USER_FOLDER)/readme.txt 1 $(DISK_NAME).bin
 
 clean:
@@ -93,7 +95,7 @@ clean:
 		$(OUTPUT_FOLDER)/shell $(OUTPUT_FOLDER)/shell_elf \
 		$(OUTPUT_FOLDER)/clock $(OUTPUT_FOLDER)/clock_elf \
 		$(OUTPUT_FOLDER)/hello $(OUTPUT_FOLDER)/hello_elf \
-		$(OUTPUT_FOLDER)/
+		$(OUTPUT_FOLDER)/echo $(OUTPUT_FOLDER)/echo_elf
 
 kernel: $(OBJECTS)
 	@$(LIN) $(LFLAGS) $(OBJECTS) -o $(OUTPUT_FOLDER)/kernel
