@@ -34,7 +34,7 @@ sudo apt install -y nasm gcc gcc-multilib make genisoimage qemu-system-x86 gdb
 Build dan jalankan:
 
 ```bash
-make prepare   # build kernel (bin/OS2025.iso), buat disk baru, lalu masukkan shell, clock, dan hello
+make prepare   # build kernel (bin/OS2025.iso), buat disk baru, lalu masukkan shell, clock, hello, dan echo
 make run       # menjalankan OS lewat QEMU (gdb server di localhost:1234)
 ```
 
@@ -94,6 +94,7 @@ killed pid 3
   - Driver CMOS dan program `clock` yang berjalan di background
   - Aplikasi eksternal `hello` yang dijalankan lewat `exec`
 - [x] Bonus: Environment variable `PATH` yang persisten (disimpan di `path.cfg`)
+- [x] Bonus: Separate shell command (`echo` sebagai binary eksternal di `/bin/echo`)
 
 ## Struktur Kode
 
@@ -105,7 +106,7 @@ killed pid 3
 | `src/process/` | process, scheduler, dan context switch |
 | `src/filesystem/` | driver disk ATA dan EXT2 |
 | `src/driver/`, `src/text/` | keyboard, CMOS, dan framebuffer |
-| `src/user/` | program user mode: `shell`, `clock`, `hello`, beserta `crt0.s` |
+| `src/user/` | program user mode: `shell`, `clock`, `hello`, `echo`, beserta `crt0.s` |
 | `src/external/` | inserter, alat host untuk mengisi disk image |
 
 ## Maskot Kelompok

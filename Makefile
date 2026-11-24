@@ -27,8 +27,8 @@ C_OBJECTS     = $(patsubst $(SOURCE_FOLDER)/%.c,$(OUTPUT_FOLDER)/%.o,$(C_SOURCES
 OBJECTS       = $(ASM_OBJECTS) $(C_OBJECTS)
 
 # User programs: the shell is the init process, USER_APPS are installed into /bin
-USER_PROGRAMS = shell clock hello
-USER_APPS     = clock hello
+USER_PROGRAMS = shell clock hello echo
+USER_APPS     = clock hello echo
 USER_BINARIES = $(addprefix $(OUTPUT_FOLDER)/,$(USER_PROGRAMS))
 USER_ELFS     = $(addsuffix _elf,$(USER_BINARIES))
 
