@@ -1,7 +1,7 @@
 /**
  * clock: a small background user program that proves multitasking works.
  * It keeps drawing the current time (HH:MM:SS, read from the CMOS RTC through
- * a system call) at the top right corner of the screen while the shell stays
+ * a system call) at the bottom right corner of the screen while the shell stays
  * usable.
  *
  * Run it with "clock &" or "exec clock &", stop it with "kill <pid>".
@@ -14,7 +14,7 @@
 
 #define SCREEN_WIDTH 80
 #define CLOCK_LENGTH 8                             /* "HH:MM:SS" */
-#define CLOCK_ROW    0
+#define CLOCK_ROW    24
 #define CLOCK_COL    (SCREEN_WIDTH - CLOCK_LENGTH)
 #define CLOCK_COLOR  0x1F                          /* White text on blue background */
 
@@ -38,20 +38,27 @@ int main(int argc, char **argv) {
 
     struct Time now;
     char text[CLOCK_LENGTH];
+    uint8_t last_second = 0xFF;
 
-    // Redraw continuously: the display follows the RTC within the same
-    // second, and comes back right away after the screen scrolls or clears
+    // Redraw whenever the RTC second changes; brief spin avoids hammering CMOS I/O
     while (true) {
         syscall(SYS_GET_TIME, (uint32_t) &now, 0, 0);
 
-        put_two_digits(&text[0], now.hour);
-        text[2] = ':';
-        put_two_digits(&text[3], now.minute);
-        text[5] = ':';
-        put_two_digits(&text[6], now.second);
+        if (now.second != last_second) {
+            last_second = now.second;
+            put_two_digits(&text[0], now.hour);
+            text[2] = ':';
+            put_two_digits(&text[3], now.minute);
+            text[5] = ':';
+            put_two_digits(&text[6], now.second);
 
-        syscall(SYS_WRITE_AT, (uint32_t) text, CLOCK_LENGTH,
-                SYS_WRITE_AT_POSITION(CLOCK_ROW, CLOCK_COL, CLOCK_COLOR));
+            syscall(SYS_WRITE_AT, (uint32_t) text, CLOCK_LENGTH,
+                    SYS_WRITE_AT_POSITION(CLOCK_ROW, CLOCK_COL, CLOCK_COLOR));
+        }
+
+        for (volatile uint32_t i = 0; i < 20000; i++) {
+            // brief pause before polling RTC again
+        }
     }
     return 0;
 }

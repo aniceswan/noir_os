@@ -77,7 +77,7 @@ mbOSok/$ kill 3
 killed pid 3
 ```
 
-- `clock` menampilkan jam dari CMOS di pojok kanan atas layar. Jalankan dengan `&` supaya shell tetap bisa dipakai.
+- `clock` menampilkan jam dari CMOS di pojok kanan bawah layar. Jalankan dengan `&` supaya shell tetap bisa dipakai.
 - Program tanpa `&` berjalan di foreground: shell menunggu sampai program selesai. Tekan `Ctrl+C` untuk menghentikannya.
 - Program yang crash (page fault, general protection fault, dan sejenisnya) hanya menghentikan dirinya sendiri, process lain tetap berjalan.
 
