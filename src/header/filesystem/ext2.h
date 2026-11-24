@@ -303,7 +303,7 @@ void initialize_filesystem_ext2(void);
 /**
  * @brief check whether a directory table has children or not
  * @param inode of a directory table
- * @return true if first_child_entry->inode = 0
+ * @return true if there is no live entry besides . and ..
  */
 bool is_directory_empty(uint32_t inode);
 
@@ -350,7 +350,7 @@ int8_t get_file_size(const char *name, uint8_t name_len, uint32_t parent_inode, 
 /**
  * @brief EXT2 write, write a file or a folder to file system
  *
- * @param All attribute will be used for write except is_dir, buffer_size == 0 then create a folder / directory. It is possible that exist file with name same as a folder
+ * @param All attribute will be used for write, is_directory or buffer_size == 0 creates a folder / directory. It is possible that exist file with name same as a folder
  * @return Error code: 0 success - 1 file/folder already exist - 2 invalid parent folder - -1 unknown
  */
 int8_t write(struct EXT2DriverRequest *request);

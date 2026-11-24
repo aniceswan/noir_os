@@ -12,8 +12,9 @@
  */
 __attribute__((noreturn)) extern void process_context_switch(struct Context ctx);
 
-/* --- Scheduler --- */
 
+
+/* --- Scheduler --- */
 /**
  * Initialize scheduler before executing init process
  */
@@ -27,15 +28,9 @@ void scheduler_init(void);
 void scheduler_save_context_to_current_running_pcb(struct Context ctx);
 
 /**
- * Trigger the scheduler algorithm and context switch to new process
+ * Trigger the scheduler algorithm and context switch to new process.
+ * Scheduling algorithm: Round Robin, one timer tick per time slice.
  */
 __attribute__((noreturn)) void scheduler_switch_to_next_process(void);
-
-/**
- * Check whether at least one process is READY or RUNNING
- *
- * @return true when the scheduler has something to execute
- */
-bool scheduler_has_runnable_process(void);
 
 #endif

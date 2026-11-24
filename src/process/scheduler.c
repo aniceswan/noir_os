@@ -1,84 +1,67 @@
 #include "header/process/scheduler.h"
 #include "header/process/process.h"
 #include "header/memory/paging.h"
-#include "header/cpu/portio.h"
 #include "header/cpu/interrupt.h"
+#include "header/text/framebuffer.h"
 
-#define PIT_MAX_FREQUENCY   1193182
-#define PIT_TIMER_FREQUENCY 1000
-#define PIT_TIMER_COUNTER   (PIT_MAX_FREQUENCY / PIT_TIMER_FREQUENCY)
-
-#define PIT_COMMAND_REGISTER_PIO          0x43
-#define PIT_COMMAND_VALUE_BINARY_MODE     0b0
-#define PIT_COMMAND_VALUE_OPR_SQUARE_WAVE (0b011 << 1)
-#define PIT_COMMAND_VALUE_ACC_LOHIBYTE    (0b11  << 4)
-#define PIT_COMMAND_VALUE_CHANNEL         (0b00  << 6)
-#define PIT_COMMAND_VALUE (PIT_COMMAND_VALUE_BINARY_MODE | PIT_COMMAND_VALUE_OPR_SQUARE_WAVE | PIT_COMMAND_VALUE_ACC_LOHIBYTE | PIT_COMMAND_VALUE_CHANNEL)
-
-#define PIT_CHANNEL_0_DATA_PIO 0x40
-
-static void activate_timer_interrupt(void) {
-    __asm__ volatile("cli");
-    uint32_t pit_timer_counter_to_fire = PIT_TIMER_COUNTER;
-    out(PIT_COMMAND_REGISTER_PIO, PIT_COMMAND_VALUE);
-    out(PIT_CHANNEL_0_DATA_PIO, (uint8_t) (pit_timer_counter_to_fire & 0xFF));
-    out(PIT_CHANNEL_0_DATA_PIO, (uint8_t) ((pit_timer_counter_to_fire >> 8) & 0xFF));
-
-    // Unmask IRQ0 (timer)
-    out(PIC1_DATA, in(PIC1_DATA) & (uint8_t) ~(1 << IRQ_TIMER));
-}
+// PCB index of the process that got the last time slice, -1 before the first switch
+static int32_t scheduler_last_index = -1;
 
 void scheduler_init(void) {
-    /* Process slots are zero-initialized (PROCESS_STATE_UNUSED). Do NOT reset
-     * them here: the init process is created before scheduler_init() runs. */
-    process_manager_state.current_process_index = PROCESS_COUNT_MAX;
+    scheduler_last_index = -1;
+    // From now on IRQ0 fires periodically and preempts the running process
     activate_timer_interrupt();
 }
 
-bool scheduler_has_runnable_process(void) {
-    for (uint32_t i = 0; i < PROCESS_COUNT_MAX; i++) {
-        if (_process_list[i].metadata.state == PROCESS_STATE_READY
-            || _process_list[i].metadata.state == PROCESS_STATE_RUNNING) {
-            return true;
-        }
-    }
-    return false;
+void scheduler_save_context_to_current_running_pcb(struct Context ctx) {
+    struct ProcessControlBlock *current_pcb = process_get_current_running_pcb_pointer();
+    if (current_pcb == NULL) return;
+    current_pcb->context = ctx;
 }
 
-void scheduler_save_context_to_current_running_pcb(struct Context ctx) {
-    struct ProcessControlBlock *pcb = process_get_current_running_pcb_pointer();
-    if (pcb == NULL) return;
-    pcb->context = ctx;
-    if (pcb->metadata.state == PROCESS_STATE_RUNNING) {
-        pcb->metadata.state = PROCESS_STATE_READY;
+/**
+ * Round Robin: walk the process list circularly, starting right after the
+ * process that ran last, and take the first READY process. The search ends
+ * on the last process itself, so a lone process simply keeps running.
+ *
+ * @return PCB index of the next process, -1 when nothing is ready
+ */
+static int32_t scheduler_get_next_ready_index(void) {
+    for (int32_t i = 1; i <= PROCESS_COUNT_MAX; i++) {
+        int32_t index = (scheduler_last_index + i) % PROCESS_COUNT_MAX;
+        if (_process_list[index].metadata.active &&
+            _process_list[index].metadata.state == PROCESS_STATE_READY) {
+            return index;
+        }
     }
+    return -1;
+}
+
+__attribute__((noreturn)) static void scheduler_halt(void) {
+    static const char message[] = "\nscheduler: no runnable process, system halted\n";
+    framebuffer_puts(message, sizeof(message) - 1, 0x0C);
+    while (true) __asm__ volatile("cli; hlt");
 }
 
 __attribute__((noreturn)) void scheduler_switch_to_next_process(void) {
-    uint32_t start = 0;
-    if (process_manager_state.current_process_index < PROCESS_COUNT_MAX) {
-        start = (process_manager_state.current_process_index + 1) % PROCESS_COUNT_MAX;
+    // The running process goes back to the queue
+    struct ProcessControlBlock *current_pcb = process_get_current_running_pcb_pointer();
+    if (current_pcb != NULL) current_pcb->metadata.state = PROCESS_STATE_READY;
+
+    // The system always needs its init process (the shell). Start it again
+    // when it was killed or crashed, otherwise nobody could type a command.
+    if (process_get_pcb_by_pid(process_manager_state.init_pid) == NULL) {
+        process_create_init_process();
     }
 
-    for (uint32_t i = 0; i < PROCESS_COUNT_MAX; i++) {
-        uint32_t index = (start + i) % PROCESS_COUNT_MAX;
-        struct ProcessControlBlock *pcb = &_process_list[index];
-        if (pcb->metadata.state != PROCESS_STATE_READY
-            && pcb->metadata.state != PROCESS_STATE_RUNNING) {
-            continue;
-        }
+    int32_t next_index = scheduler_get_next_ready_index();
+    if (next_index < 0) scheduler_halt();
 
-        process_manager_state.current_process_index = index;
-        pcb->metadata.state = PROCESS_STATE_RUNNING;
-        paging_use_page_directory(pcb->context.page_directory_virtual_addr);
-        process_context_switch(pcb->context);
-    }
+    struct ProcessControlBlock *next_pcb = &_process_list[next_index];
+    next_pcb->metadata.state = PROCESS_STATE_RUNNING;
+    scheduler_last_index     = next_index;
 
-    /* No runnable process: idle until the next interrupt finds one. */
-    process_manager_state.current_process_index = PROCESS_COUNT_MAX;
-    __asm__ volatile("sti");
-    while (true) {
-        __asm__ volatile("hlt");
-    }
-    __builtin_unreachable();
+    // Switch virtual address space first, then CPU register with iret
+    paging_use_page_directory(next_pcb->context.page_directory_virtual_addr);
+    process_context_switch(next_pcb->context);
 }

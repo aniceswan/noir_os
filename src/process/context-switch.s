@@ -1,56 +1,66 @@
 global process_context_switch
 
-; process_context_switch(struct Context ctx)
-;
-; cdecl argument layout (context passed by value):
-;   [esp]      return address
-;   [esp+4]    ctx
-;
-; Context field offsets from ctx base:
-;   +0  cpu.index.edi      +4  cpu.index.esi
-;   +8  cpu.stack.ebp      +12 cpu.stack.esp (user esp)
-;   +16 cpu.general.ebx    +20 cpu.general.edx
-;   +24 cpu.general.ecx    +28 cpu.general.eax
-;   +32 cpu.segment.gs     +36 cpu.segment.fs
-;   +40 cpu.segment.es     +44 cpu.segment.ds
-;   +48 eip                +52 eflags
-;   +56 page_directory_virtual_addr (CR3 is switched from C)
-;
-; Build the iret frame (ss, user esp, eflags, cs, eip), load all registers
-; from the context and return to ring 3 with iret.
+; Offsets inside struct Context (see header/process/process.h)
+CTX_EDI    equ 0
+CTX_ESI    equ 4
+CTX_EBP    equ 8
+CTX_ESP    equ 12
+CTX_EBX    equ 16
+CTX_EDX    equ 20
+CTX_ECX    equ 24
+CTX_EAX    equ 28
+CTX_GS     equ 32
+CTX_FS     equ 36
+CTX_ES     equ 40
+CTX_DS     equ 44
+CTX_EIP    equ 48
+CTX_EFLAGS equ 52
+
+USER_CODE_SELECTOR equ 0x18 | 0x3   ; GDT_USER_CODE_SEGMENT_SELECTOR, ring 3
+USER_DATA_SELECTOR equ 0x20 | 0x3   ; GDT_USER_DATA_SEGMENT_SELECTOR, ring 3
+
 section .text
+; void process_context_switch(struct Context ctx);
+; Load CPU register from ctx and jump into the process with iret, never returns.
+; The page directory (CR3) is already switched by the scheduler in C.
 process_context_switch:
-    mov edx, esp
+    ; 1. ctx is passed by value: [esp] is the return address, ctx starts at [esp+4]
+    lea  ecx, [esp+4]
 
-    ; Inter-privilege iret frame
-    push dword 0x23                ; user ss (0x20 | 0x3)
-    mov eax, [edx + 4 + 12]        ; ctx.cpu.stack.esp
-    push eax                       ; user esp
-    mov eax, [edx + 4 + 52]        ; ctx.eflags
-    push eax
-    push dword 0x1B                ; user cs (0x18 | 0x3)
-    mov eax, [edx + 4 + 48]        ; ctx.eip
-    push eax
+    ; 2. Setup iret stack for inter-privilege return (ring 0 -> ring 3)
+    ;    [esp] -> eip, [esp+4] -> cs, [esp+8] -> eflags, [esp+12] -> user esp, [esp+16] -> user ss
+    mov  eax, USER_DATA_SELECTOR
+    push eax                        ; ss
+    mov  eax, [ecx + CTX_ESP]
+    push eax                        ; esp
+    mov  eax, [ecx + CTX_EFLAGS]
+    push eax                        ; eflags
+    mov  eax, USER_CODE_SELECTOR
+    push eax                        ; cs
+    mov  eax, [ecx + CTX_EIP]
+    push eax                        ; eip
 
-    ; Segment registers
-    mov eax, [edx + 4 + 44]        ; ctx.cpu.segment.ds
-    mov ds, ax
-    mov eax, [edx + 4 + 40]        ; ctx.cpu.segment.es
-    mov es, ax
-    mov eax, [edx + 4 + 36]        ; ctx.cpu.segment.fs
-    mov fs, ax
-    mov eax, [edx + 4 + 32]        ; ctx.cpu.segment.gs
-    mov gs, ax
+    ; 3. Load all register from ctx, segment register borrows eax as temporary
+    mov  eax, [ecx + CTX_GS]
+    mov  gs, ax
+    mov  eax, [ecx + CTX_FS]
+    mov  fs, ax
+    mov  eax, [ecx + CTX_ES]
+    mov  es, ax
+    mov  eax, [ecx + CTX_DS]
+    mov  ds, ax                     ; Flat segment, ctx is still reachable through ds
 
-    ; General purpose & index registers (edx must be loaded last)
-    mov edi, [edx + 4 + 0]
-    mov esi, [edx + 4 + 4]
-    mov ebp, [edx + 4 + 8]
-    mov ebx, [edx + 4 + 16]
-    mov ecx, [edx + 4 + 24]
-    mov eax, [edx + 4 + 28]
-    mov edx, [edx + 4 + 20]
+    mov  edi, [ecx + CTX_EDI]
+    mov  esi, [ecx + CTX_ESI]
+    mov  ebp, [ecx + CTX_EBP]
+    mov  ebx, [ecx + CTX_EBX]
+    mov  edx, [ecx + CTX_EDX]
 
+    ; 4. eax and ecx are restored last because they were used as temporary & ctx base
+    mov  eax, [ecx + CTX_EAX]
+    mov  ecx, [ecx + CTX_ECX]
+
+    ; 5. Jump to the process
     iret
 
 section .note.GNU-stack noalloc noexec nowrite progbits

@@ -1,95 +1,112 @@
 ![Credit: 朧月](mascot.jpg)
 
-# mbOSok - Tugas Besar IF2130 Sistem Operasi 2026/2027
+# mbOSok
 
-Sistem operasi 32-bit x86 (C + NASM, freestanding) hasil pengerjaan Tugas Besar
-IF2130. Kernel berjalan di higher-half (`0xC0100000`), mendukung paging,
-user mode, system call, EXT2, process, scheduler, dan multitasking preemptive.
-
-## Nama Kelompok
-
-- **Nama Kelompok:** mbOSok
-- **Anggota:**
-  - Nabil Rabbani — 13525004
-  - Raditya Wibian Sastaka — 13525019
-  - Mochammad Nuha Al Ghifari — 13525056
-  - Ghaniyul Amri Caulava — 13525106
+Sistem operasi 32-bit x86 Protected Mode buatan kelompok **mbOSok** untuk Tugas Besar IF2130 Sistem Operasi 2026/2027. mbOSok punya kernel higher-half dengan paging, file system EXT2, shell di user mode, dan multitasking preemptive: beberapa program bisa berjalan bersamaan, misalnya jam yang terus berdetak di pojok layar selagi shell tetap dipakai.
 
 ## Daftar Isi
 
-1. [Nama Kelompok](#nama-kelompok)
+1. [Kontributor](#kontributor)
 2. [Cara Run](#cara-run)
-3. [Fitur yang Dibuat](#fitur-yang-dibuat)
-4. [Arsitektur Singkat](#arsitektur-singkat)
-5. [Maskot Kelompok](#maskot-kelompok)
+3. [Cara Pakai](#cara-pakai)
+4. [Fitur yang Dibuat](#fitur-yang-dibuat)
+5. [Struktur Kode](#struktur-kode)
+6. [Maskot Kelompok](#maskot-kelompok)
+
+## Kontributor
+
+| Nama | NIM |
+|------|-----|
+| Nabil Rabbani | 13525004 |
+| Raditya Wibian Sastaka | 13525019 |
+| Mochammad Nuha Al Ghifari | 13525056 |
+| Ghaniyul Amri Caulava | 13525106 |
 
 ## Cara Run
 
-Prasyarat (Linux): `nasm`, `gcc` + `gcc-multilib`, `make`, `genisoimage`,
-`qemu-system-x86`, `gdb`, `qemu-img` dan `python3` + `PIL` (opsional, untuk uji).
+Prasyarat (Linux / WSL): `nasm`, `gcc` + `gcc-multilib`, `make`, `genisoimage`, `qemu-system-x86`, `gdb`.
 
 ```bash
 sudo apt update
 sudo apt install -y nasm gcc gcc-multilib make genisoimage qemu-system-x86 gdb
 ```
 
-Build lengkap (kernel + disk EXT2 + shell + seluruh program user):
+Build dan jalankan:
 
 ```bash
-make prepare   # clean + build ISO + buat disk 4 MiB + insert semua program
-make run       # jalankan lewat QEMU (gdb server di localhost:1234)
+make prepare   # build kernel (bin/OS2025.iso), buat disk baru, lalu masukkan shell, clock, dan hello
+make run       # menjalankan OS lewat QEMU (gdb server di localhost:1234)
 ```
 
-Perintah build yang lebih granular:
+`make prepare` membuat ulang `bin/storage.bin`, jadi isi disk sebelumnya hilang. Untuk build ulang kernel tanpa menyentuh disk, pakai `make build`.
+
+`make run` menjalankan QEMU dengan flag `-S`, sehingga QEMU menunggu debugger sebelum boot. Lanjutkan dengan konfigurasi `Kernel` pada `.vscode/launch.json`, atau dari terminal lain:
 
 ```bash
-make build             # bin/OS2025.iso
-make disk              # bin/storage.bin (4 MiB, menghapus data lama)
-make user-programs     # shell, clock, hello, echo (+ .elf untuk debug)
-make inserter          # host tool bin/inserter
-make insert-shell      # masukkan shell ke root disk
-make insert-programs   # masukkan clock/hello/echo ke /bin lewat PATH
+gdb -ex "target remote :1234" -ex "continue"
 ```
 
-Untuk debug di VS Code, gunakan konfigurasi `Kernel` pada `.vscode/launch.json`
-(symbol kernel + `shell_elf` sudah dimuat otomatis).
+## Cara Pakai
+
+Setelah boot, shell langsung siap menerima command. Ketik `help` untuk daftar lengkapnya.
+
+| Command | Fungsi |
+|---------|--------|
+| `ls`, `cd`, `pwd`, `mkdir` | navigasi dan membuat folder |
+| `cat`, `cp`, `mv`, `rm` | membaca, menyalin, memindahkan, dan menghapus file atau folder |
+| `find <nama>`, `grep <pola> [file]` | pencarian, `grep` juga bisa dipakai di pipeline (`ls \| grep txt`) |
+| `exec <file> [argumen] [&]` | menjalankan program, `&` menjalankannya di background |
+| `ps` | menampilkan PID, parent PID, state, dan nama semua process |
+| `kill <pid>` | menghentikan process berdasarkan PID |
+| `env`, `export <dir[:dir...]>` | melihat dan mengubah variabel `PATH` |
+| `clear`, `help` | membersihkan layar dan menampilkan bantuan |
+
+Program di dalam `PATH` (bawaan: `/bin`) bisa dijalankan langsung dengan namanya dari folder mana pun.
+
+```text
+mbOSok/$ hello
+Hello World!
+mbOSok/$ clock &
+[3] clock started in background
+mbOSok/$ ps
+PID   PPID  STATE    NAME
+1     0     RUNNING  shell
+3     1     READY    clock
+total 2 process(es)
+mbOSok/$ kill 3
+killed pid 3
+```
+
+- `clock` menampilkan jam dari CMOS di pojok kanan atas layar. Jalankan dengan `&` supaya shell tetap bisa dipakai.
+- Program tanpa `&` berjalan di foreground: shell menunggu sampai program selesai. Tekan `Ctrl+C` untuk menghentikannya.
+- Program yang crash (page fault, general protection fault, dan sejenisnya) hanya menghentikan dirinya sendiri, process lain tetap berjalan.
 
 ## Fitur yang Dibuat
 
 - [x] Chapter 0: Toolchain, C kernel + linker, Makefile automation, GDT
-- [x] Chapter 1: Framebuffer driver, Interrupt (PIC remap, IDT, ISR), Keyboard driver
-- [x] Chapter 2: File System EXT2 (CRUD file & folder, indirect block, host inserter)
-- [x] Chapter 3: Paging (higher-half, recursive page directory, frame allocator),
-      User Mode (TSS, ring 3), System Call `int 0x30`, Shell (ls/cat/mkdir/cd/cp/rm/
-      mv/find/grep/echo + pipeline)
+- [x] Chapter 1: Framebuffer driver, Interrupt (PIC remap, IDT, ISR), Keyboard driver (Shift, Caps Lock, Ctrl+C)
+- [x] Chapter 2: File System EXT2
+- [x] Chapter 3: Paging, User Mode, Shell
 - [x] Chapter 4: Process, Scheduler, Multitasking
-  - [x] Multi virtual address space (page directory per proses)
-  - [x] Process Control Block (Context, state, memory & metadata)
-  - [x] `process_create_user_process`, `process_destroy`, PID, init process = shell
-  - [x] PIT IRQ0 1000 Hz, Round-Robin preemptive scheduler
-  - [x] Context switch assembly (`process_context_switch`) + koreksi intsetup/CPURegister
-  - [x] Process entrypoint & exit (`crt0.s` + syscall `exit`)
-  - [x] Process management: syscall `exec`, `kill`, `ps` + command shell
-  - [x] CMOS/RTC driver + program `clock` (update tiap detik di pojok kanan bawah)
-  - [x] External application `hello` dijalankan lewat `exec`
-  - [x] Background process (`clock &`, `exec`), shell tetap responsif
-- [x] Bonus 4.3.5 Environment Variables: `PATH` + `export`, persistent di `/path.cfg`
-- [x] Bonus 4.3.6 Separate Shell Commands: `echo` (dan seluruh program di `/bin`)
-      dijalankan dengan nama saja melalui PATH, lengkap dengan argc/argv
-- [x] Bonus folder `cp` / `rm` rekursif (Chapter 3)
-- [x] Debug symbols untuk shell & program user (`bin/*_elf`)
+  - Process Control Block dan virtual address space terpisah untuk setiap process
+  - Scheduler preemptive Round Robin dengan timer interrupt (IRQ0) dan context switch
+  - Syscall `exit`, `exec`, `kill`, `ps`, serta command shell `exec`, `ps`, `kill`
+  - Driver CMOS dan program `clock` yang berjalan di background
+  - Aplikasi eksternal `hello` yang dijalankan lewat `exec`
+- [x] Bonus: Environment variable `PATH` yang persisten (disimpan di `path.cfg`)
 
-## Arsitektur Singkat
+## Struktur Kode
 
-- **Memori**: kernel di higher-half (`0xC0000000+`), satu PDE[0x300] dipakai
-  bersama seluruh page directory; PDE[1023] bersifat rekursif (fractal).
-- **Proses**: tiap proses mendapat page directory sendiri, image executable
-  dimuat ke virtual address `0x0`, stack user di `0x3FC000-0x3FFFFF`.
-- **Scheduling**: timer PIT 1000 Hz memicu `main_interrupt_handler` IRQ0 yang
-  menyimpan context ke PCB dan memanggil `scheduler_switch_to_next_process`
-  (round robin). Kernel memakai satu kernel stack (TSS `esp0`) tanpa reentrancy.
-- **Syscall**: `int 0x30` DPL 3, return value di `eax` (lihat
-  `src/header/user/syscall.h`).
+| Lokasi | Isi |
+|--------|-----|
+| `src/kernel.c`, `src/kernel-entrypoint.s` | entrypoint kernel dan urutan inisialisasi |
+| `src/cpu/` | GDT, IDT, interrupt handler, dan dispatcher syscall |
+| `src/memory/` | paging dan page frame allocator |
+| `src/process/` | process, scheduler, dan context switch |
+| `src/filesystem/` | driver disk ATA dan EXT2 |
+| `src/driver/`, `src/text/` | keyboard, CMOS, dan framebuffer |
+| `src/user/` | program user mode: `shell`, `clock`, `hello`, beserta `crt0.s` |
+| `src/external/` | inserter, alat host untuk mengisi disk image |
 
 ## Maskot Kelompok
 

@@ -11,6 +11,9 @@ KERNEL_STACK_SIZE   equ 2097152       ; size of stack in bytes (2 MiB)
 MAGIC_NUMBER        equ 0x1BADB002    ; define the magic number constant
 FLAGS               equ 0x0           ; multiboot flags
 CHECKSUM            equ -MAGIC_NUMBER ; calculate the checksum (magic number + checksum + flags == 0)
+; Initial user esp, must match PROCESS_USER_INITIAL_ESP in process.h:
+; stack top 0x400000 - argument strings (256) - argv[9] (36) - argv & argc (8)
+USER_INITIAL_ESP    equ 0x400000 - 256 - 36 - 8
 
 
 section .bss
@@ -30,7 +33,7 @@ align 4             ; the code must be 4 byte aligned
 section .setup.text
 loader equ (loader_entrypoint - KERNEL_VIRTUAL_BASE)
 loader_entrypoint:         ; the loader label (defined as entry point in linker script)
-; Build the initial 4 KiB identity/higher-half mappings before paging is on.
+; Map the first 4 MiB (4 KiB pages) both at 0x0 and at 0xC0000000 before paging is on.
     mov edi, (_paging_kernel_page_table - KERNEL_VIRTUAL_BASE)
     xor eax, eax
     mov ecx, 1024
@@ -74,7 +77,8 @@ loader_entrypoint:         ; the loader label (defined as entry point in linker 
 
 loader_virtual:
     mov dword [(_paging_kernel_page_directory)], 0
-    invlpg [0]                                ; Delete identity mapping and invalidate TLB cache for first page
+    mov ecx, cr3                              ; Identity mapping deleted, reload cr3 to flush the whole TLB
+    mov cr3, ecx
     mov esp, kernel_stack + KERNEL_STACK_SIZE ; Setup stack register to proper location
     call kernel_setup
 .loop:
@@ -113,7 +117,6 @@ set_tss_register:
     ret
 
 
-global kernel_execute_user_program ; execute initial user program from kernel
 kernel_execute_user_program:
     mov  eax, 0x20 | 0x3           ; GDT_USER_DATA_SEGMENT_SELECTOR | ring 3
     mov  ds, ax
@@ -126,8 +129,7 @@ kernel_execute_user_program:
     ; [esp] -> eip, [esp+4] -> cs, [esp+8] -> eflags, [esp+12] -> user esp, [esp+16] -> user ss
     mov  ecx, [esp+4]              ; Save the program entry point before pushing anything
     push eax                       ; Stack segment selector (user data, ring 3)
-    mov  eax, ecx
-    add  eax, 0x400000 - 4         ; User space stack pointer, top of the first 4 MiB
+    mov  eax, USER_INITIAL_ESP     ; User space stack pointer, same convention as process creation
     push eax                       ; User esp
     pushf                          ; eflags register state when entering user program
     mov  eax, 0x18 | 0x3           ; GDT_USER_CODE_SEGMENT_SELECTOR | ring 3

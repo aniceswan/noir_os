@@ -20,6 +20,14 @@ SECTIONS {
         *(COMMON)
         *(.bss)
     }
+    /* Notes and unwind tables would end up in the flat binary, possibly before _start */
+    /DISCARD/ : {
+        *(.comment)
+        *(.note*)
+        *(.eh_frame*)
+    }
+
     _linker_user_program_end = .;
     ASSERT ((_linker_user_program_end <= 1 * 1024 * 1024), "Error: User program linking result is more than 1 MiB")
+    ASSERT ((_start == 0), "Error: _start must be at address 0, kernel jumps there")
 }

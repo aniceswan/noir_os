@@ -2,10 +2,9 @@
  * mbOSok shell: a ring-3 user program that only talks to the kernel through
  * the INT 0x30 syscall interface.
  *
- * Milestone 4 additions:
- *   - exec / ps / kill process management commands,
- *   - PATH environment variable with persistence (export / env),
- *   - external commands resolved through PATH (separate shell commands).
+ * The shell is the init process of the system. exec / ps / kill use the
+ * process management syscalls of Milestone 4: a program runs as a separate
+ * user process, in the foreground (the shell waits) or in the background.
  */
 
 #include <stdint.h>
@@ -590,10 +589,11 @@ static int8_t copy_tree(uint32_t src_inode, uint32_t dst_parent, const char *dst
     return 0;
 }
 
-static int8_t remove_tree(uint32_t inode, uint32_t parent_inode, const char *name, uint8_t file_type) {
+static int8_t remove_tree(uint32_t inode, uint32_t parent_inode, const char *name, uint8_t file_type, uint32_t depth) {
     if (file_type != EXT2_FT_DIR) {
         return delete_entry(name, parent_inode, false);
     }
+    if (depth > TREE_MAX_DEPTH) return -1;
     if (load_directory(inode) != 0) return -1;
 
     struct child_info children[TREE_MAX_CHILDREN];
@@ -601,7 +601,7 @@ static int8_t remove_tree(uint32_t inode, uint32_t parent_inode, const char *nam
     collect_children(children, &child_count);
 
     for (uint32_t i = 0; i < child_count; i++) {
-        if (remove_tree(children[i].inode, inode, children[i].name, children[i].file_type) != 0)
+        if (remove_tree(children[i].inode, inode, children[i].name, children[i].file_type, depth + 1) != 0)
             return -1;
     }
     return delete_entry(name, parent_inode, true);
@@ -625,14 +625,13 @@ static void cmd_help(void) {
     out_str("  mv <src> <dst>    move / rename file or folder\n");
     out_str("  find <name>       search the whole filesystem\n");
     out_str("  grep <pat> [f]    search a pattern in a file or pipeline\n");
-    out_str("\nProcess management:\n");
-    out_str("  exec <name> [a..] run an executable (PATH aware, optional &)\n");
-    out_str("  ps                list processes\n");
+    out_str("  exec <file> [&]   run a program, & runs it in the background\n");
+    out_str("  ps                list running processes\n");
     out_str("  kill <pid>        terminate a process\n");
-    out_str("  env               print environment variables\n");
-    out_str("  export PATH <v>   set PATH (persisted to /path.cfg)\n");
-    out_str("\nExternal commands found through PATH are also executable by name,\n");
-    out_str("e.g. hello, clock, echo. Pipelines are supported, e.g. ls | grep txt\n");
+    out_str("  env               show the PATH variable\n");
+    out_str("  export <dirs>     set PATH, e.g. export /bin:/apps\n");
+    out_str("\nPipelines are supported, e.g. ls | grep txt\n");
+    out_str("Programs in PATH run by name (clock &, hello). Ctrl+C stops them.\n");
 }
 
 static void cmd_ls(void) {
@@ -771,7 +770,7 @@ static void cmd_rm(const char *name) {
         print_error("rm: not found: ", name);
         return;
     }
-    if (remove_tree(inode, cwd_inode, name, type) != 0)
+    if (remove_tree(inode, cwd_inode, name, type, 0) != 0)
         print_error("rm: failed: ", name);
 }
 
@@ -791,7 +790,7 @@ static void cmd_mv(const char *src, const char *dst) {
         return;
     }
     if (type == EXT2_FT_DIR) {
-        if (copy_tree(inode, cwd_inode, dst, 0) != 0 || remove_tree(inode, cwd_inode, src, type) != 0)
+        if (copy_tree(inode, cwd_inode, dst, 0) != 0 || remove_tree(inode, cwd_inode, src, type, 0) != 0)
             print_error("mv: failed: ", src);
         return;
     }
@@ -931,53 +930,64 @@ static void cmd_grep(const char *pattern, const char *file) {
 /* Process management commands                                        */
 /* ------------------------------------------------------------------ */
 
+static void out_number(uint32_t value) {
+    char digits[12];
+    uint32_t count = 0;
+    do {
+        digits[count++] = (char) ('0' + value % 10);
+        value /= 10;
+    } while (value > 0);
+    while (count > 0) out_char(digits[--count]);
+}
+
+/**
+ * Run an executable from the file system as a new process.
+ * argv[0] is the program: a path, or a name looked up through PATH.
+ * A trailing "&" starts it in the background, otherwise the shell waits
+ * until the program terminates (Ctrl+C stops it early).
+ *
+ * @param argv Program name and its arguments, needs room for argv[argc]
+ */
+static void launch_program(char *argv[], uint32_t argc) {
+    bool background = false;
+    if (argc > 0 && str_eq(argv[argc - 1], "&")) {
+        background = true;
+        argc--;
+    }
+    if (argc == 0) {
+        print_error("exec: missing file operand", NULL);
+        return;
+    }
+    // The kernel reads argv up to NULL, this also keeps "&" away from the program
+    argv[argc] = NULL;
+
+    char absolute[PATH_MAX];
+    if (!resolve_executable(argv[0], absolute, PATH_MAX)) {
+        print_error(argv[0], ": command not found (try 'help')");
+        return;
+    }
+
+    int32_t pid = (int32_t) syscall(SYS_EXEC, (uint32_t) absolute, (uint32_t) argv, background ? 1u : 0u);
+    if (pid < 0) {
+        print_error(argv[0], ": failed to execute");
+        return;
+    }
+
+    if (background) {
+        out_char('[');
+        out_number((uint32_t) pid);
+        out_str("] ");
+        out_str(argv[0]);
+        out_str(" started in background\n");
+    }
+}
+
 static void cmd_exec(char *command_line_argv[], uint32_t argc) {
     if (argc < 2) {
         print_error("exec: usage: exec <file> [args...] [&]", NULL);
         return;
     }
-
-    bool background = false;
-    if (str_eq(command_line_argv[argc - 1], "&")) {
-        background = true;
-        argc--;
-        if (argc < 2) {
-            print_error("exec: missing file operand", NULL);
-            return;
-        }
-    }
-
-    char absolute[PATH_MAX];
-    if (!resolve_executable(command_line_argv[1], absolute, PATH_MAX)) {
-        print_error("exec: not found: ", command_line_argv[1]);
-        return;
-    }
-
-    int32_t pid = (int32_t) syscall(
-        SYS_EXEC,
-        (uint32_t) absolute,
-        (uint32_t) &command_line_argv[1],
-        background ? 1u : 0u
-    );
-    if (pid < 0) {
-        print_error("exec: failed to start: ", command_line_argv[1]);
-        return;
-    }
-
-    out_str("[");
-    char pid_buffer[12];
-    uint32_t digits = 0;
-    uint32_t value = (uint32_t) pid;
-    if (value == 0) pid_buffer[digits++] = '0';
-    while (value > 0) {
-        pid_buffer[digits++] = (char) ('0' + value % 10);
-        value /= 10;
-    }
-    while (digits > 0) out_char(pid_buffer[--digits]);
-    out_str("] started ");
-    out_str(command_line_argv[1]);
-    if (background) out_str(" (background)");
-    out_newline();
+    launch_program(&command_line_argv[1], argc - 1);
 }
 
 static void cmd_ps(void) {
@@ -1044,7 +1054,7 @@ static bool is_builtin(const char *cmd) {
 }
 
 static void run_command(char *command) {
-    char *argv[MAX_ARGS];
+    char *argv[MAX_ARGS + 1]; /* One extra slot so argv is always NULL-terminated */
     uint32_t argc = 0;
     char *p = command;
     while (*p != '\0' && argc < MAX_ARGS) {
@@ -1058,7 +1068,7 @@ static void run_command(char *command) {
         }
     }
     if (argc == 0) return;
-    if (argc < MAX_ARGS) argv[argc] = NULL;
+    argv[argc] = NULL;
 
     const char *cmd = argv[0];
     if (str_eq(cmd, "help")) {
@@ -1103,14 +1113,8 @@ static void run_command(char *command) {
             print_error("export: usage: export [PATH] <dir[:dir...]>", NULL);
         }
     } else if (!is_builtin(cmd)) {
-        /* Separate shell command: resolve through PATH and exec it. */
-        char absolute[PATH_MAX];
-        if (resolve_executable(cmd, absolute, PATH_MAX)) {
-            int32_t pid = (int32_t) syscall(SYS_EXEC, (uint32_t) absolute, (uint32_t) argv, 0u);
-            if (pid < 0) print_error(cmd, ": failed to execute");
-        } else {
-            print_error(cmd, ": command not found (try 'help')");
-        }
+        /* Not a builtin: resolve the program through PATH and execute it. */
+        launch_program(argv, argc);
     } else {
         print_error(cmd, ": command not implemented");
     }

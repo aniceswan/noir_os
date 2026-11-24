@@ -4,8 +4,8 @@ global isr_stub_table
 ; Generic handler section for interrupt
 call_generic_handler:
     ; Expected stack state at this label
-    ; [esp + 20] ss  (Only for inter-privilege)
-    ; [esp + 16] esp (Only for inter-privilege)
+    ; [esp + 24] ss  (Only for inter-privilege)
+    ; [esp + 20] esp (Only for inter-privilege)
     ; [esp + 16] eflags
     ; [esp + 12] cs
     ; [esp + 8 ] eip
@@ -32,8 +32,10 @@ call_generic_handler:
     jz  segment_register_setup   ; We will skip the esp manipulation if it's intraprivilege
 
 interprivilege_interrupt:
-    ; Interprivilege interrupt branch, get the esp from x86 interrupt stack
-    mov eax, [esp+76] 
+    ; Interprivilege interrupt branch, get the esp from x86 interrupt stack.
+    ; Kit correction (Chapter 4.1.0): CPURegister.stack.esp must carry the
+    ; interrupted user esp, because the scheduler saves it into the context.
+    mov eax, [esp+76]
     mov [esp+20], eax
 
 segment_register_setup:

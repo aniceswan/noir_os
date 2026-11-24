@@ -3,7 +3,8 @@
 
 /**
  * Bounded busy wait so a missing/unresponsive drive does not hang the kernel.
- * QEMU's ATA PIO completes within a handful of port reads.
+ * QEMU's ATA PIO completes within a handful of port reads. On timeout the
+ * transfer still goes on, so the data read is undefined.
  */
 #define ATA_WAIT_TIMEOUT 1000000u
 

@@ -6,8 +6,9 @@
 
 /**
  * _paging_kernel_page_directory and _paging_kernel_page_table are filled
- * by kernel-entrypoint.s during the paging bootstrap (identity map of the
- * first 4 MiB, higher-half map at PDE[0x300] and recursive PDE[1023]).
+ * by kernel-entrypoint.s during the paging bootstrap (temporary identity map
+ * of the first 4 MiB, removed in loader_virtual, higher-half map at
+ * PDE[0x300] and recursive PDE[1023]).
  */
 __attribute__((aligned(0x1000))) struct PageDirectory _paging_kernel_page_directory;
 __attribute__((aligned(0x1000))) struct PageTable     _paging_kernel_page_table;

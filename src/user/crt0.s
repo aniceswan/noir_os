@@ -1,25 +1,24 @@
 global _start
 extern main
 
-; Process entrypoint.
-; On entry the kernel-provided user stack follows the cdecl main() layout:
-;   [esp]            = argc
-;   [esp+4]          = pointer to argv[0]
-;   [esp+8]          = argv[0]
-;   [esp+12]         = argv[1]
-;   ...
+; Process entrypoint, linked at the very beginning of every user program.
+; Stack prepared by the kernel on process creation:
+;   [esp + 4] char **argv
+;   [esp + 0] int argc
+; After "call main" pushes the return address, main() finds argc at [esp + 4]
+; and argv at [esp + 8], exactly as the cdecl calling convention expects.
 section .text
 _start:
     mov ebp, esp
     call main
 
-    ; Terminate the process after main() returns (exit syscall = 10)
-    mov ebx, eax
-    mov eax, 10
+    ; main() returned: ask the kernel to terminate this process
+    mov ebx, eax    ; Exit code, return value of main()
+    mov eax, 10     ; SYS_EXIT
     int 0x30
 
     ; Should never be reached
-    cli
-    hlt
+.halt:
+    jmp .halt
 
 section .note.GNU-stack noalloc noexec nowrite progbits

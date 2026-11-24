@@ -70,7 +70,7 @@ void framebuffer_puts(const char *buffer, uint32_t count, uint8_t color);
 
 /**
  * Move the tracked text cursor to (row, col) and update the hardware cursor.
- * Used by user programs (e.g. the clock) to print at a fixed location.
+ * Used by the SYS_SET_CURSOR syscall to move the cursor from user mode.
  *
  * @param row Destination row (clamped to the screen)
  * @param col Destination column (clamped to the screen)
