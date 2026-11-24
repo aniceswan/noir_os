@@ -61,7 +61,9 @@ __attribute__((noreturn)) void scheduler_switch_to_next_process(void) {
     next_pcb->metadata.state = PROCESS_STATE_RUNNING;
     scheduler_last_index     = next_index;
 
-    // Switch virtual address space first, then CPU register with iret
-    paging_use_page_directory(next_pcb->context.page_directory_virtual_addr);
+    // Switch virtual address space only when moving to a different page directory
+    if (paging_get_current_page_directory_addr() != next_pcb->context.page_directory_virtual_addr) {
+        paging_use_page_directory(next_pcb->context.page_directory_virtual_addr);
+    }
     process_context_switch(next_pcb->context);
 }
