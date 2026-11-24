@@ -13,6 +13,7 @@
 
 #define KEYBOARD_DATA_PORT     0x60
 #define EXTENDED_SCANCODE_BYTE 0xE0
+#define KEYBOARD_BUFFER_SIZE   32
 
 // Modifier keys, scancode set 1 make codes (break code = make code | 0x80)
 #define SCANCODE_RELEASE_BIT   0x80
@@ -41,13 +42,15 @@ extern const char keyboard_scancode_1_to_ascii_map[256];
  * @param interrupt_requested Ctrl+C was pressed and is not handled yet
  */
 struct KeyboardDriverState {
-    bool read_extended_mode;
-    bool keyboard_input_on;
-    char keyboard_buffer;
-    bool shift_pressed;
-    bool ctrl_pressed;
-    bool caps_lock_on;
-    bool interrupt_requested;
+    bool    read_extended_mode;
+    bool    keyboard_input_on;
+    char    keyboard_buffer[KEYBOARD_BUFFER_SIZE];
+    uint8_t buffer_head;
+    uint8_t buffer_tail;
+    bool    shift_pressed;
+    bool    ctrl_pressed;
+    bool    caps_lock_on;
+    bool    interrupt_requested;
 } __attribute((packed));
 
 

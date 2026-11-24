@@ -25,7 +25,9 @@ const char keyboard_scancode_1_to_ascii_map[256] = {
 static struct KeyboardDriverState keyboard_state = {
     .read_extended_mode  = false,
     .keyboard_input_on   = false,
-    .keyboard_buffer     = 0,
+    .keyboard_buffer     = {0},
+    .buffer_head         = 0,
+    .buffer_tail         = 0,
     .shift_pressed       = false,
     .ctrl_pressed        = false,
     .caps_lock_on        = false,
@@ -71,9 +73,20 @@ void keyboard_state_deactivate(void) {
     keyboard_state.keyboard_input_on = false;
 }
 
+static void keyboard_buffer_push(char c) {
+    uint8_t next_head = (uint8_t) ((keyboard_state.buffer_head + 1) % KEYBOARD_BUFFER_SIZE);
+    if (next_head == keyboard_state.buffer_tail) return; // Buffer full, drop newest key
+    keyboard_state.keyboard_buffer[keyboard_state.buffer_head] = c;
+    keyboard_state.buffer_head = next_head;
+}
+
 void get_keyboard_buffer(char *buf) {
-    *buf = keyboard_state.keyboard_buffer;
-    keyboard_state.keyboard_buffer = 0;
+    if (keyboard_state.buffer_head == keyboard_state.buffer_tail) {
+        *buf = 0;
+        return;
+    }
+    *buf = keyboard_state.keyboard_buffer[keyboard_state.buffer_tail];
+    keyboard_state.buffer_tail = (uint8_t) ((keyboard_state.buffer_tail + 1) % KEYBOARD_BUFFER_SIZE);
 }
 
 bool keyboard_consume_interrupt_request(void) {
@@ -114,7 +127,7 @@ void keyboard_isr(void) {
                 bool use_shift = keyboard_state.shift_pressed;
                 // Caps lock only affects letters and is cancelled by shift
                 if (is_letter && keyboard_state.caps_lock_on) use_shift = !use_shift;
-                keyboard_state.keyboard_buffer = use_shift ? keyboard_shift_char(c) : c;
+                keyboard_buffer_push(use_shift ? keyboard_shift_char(c) : c);
             }
         }
     }
