@@ -36,11 +36,14 @@ void framebuffer_clear(void) {
 
 static void framebuffer_scroll(void) {
     uint32_t row_size = FRAMEBUFFER_WIDTH * 2;
+    uint32_t last_row_offset = row_size * (FRAMEBUFFER_HEIGHT - 1);
     memmove(FRAMEBUFFER_MEMORY_OFFSET,
             FRAMEBUFFER_MEMORY_OFFSET + row_size,
-            row_size * (FRAMEBUFFER_HEIGHT - 1));
-    memset(FRAMEBUFFER_MEMORY_OFFSET + row_size * (FRAMEBUFFER_HEIGHT - 1),
-           0, row_size);
+            last_row_offset);
+    for (uint32_t col = 0; col < FRAMEBUFFER_WIDTH; col++) {
+        FRAMEBUFFER_MEMORY_OFFSET[last_row_offset + col * 2]     = 0x00;
+        FRAMEBUFFER_MEMORY_OFFSET[last_row_offset + col * 2 + 1] = 0x07;
+    }
 }
 
 void framebuffer_putchar(char c, uint8_t color) {
